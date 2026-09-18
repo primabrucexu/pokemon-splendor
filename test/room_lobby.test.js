@@ -489,7 +489,7 @@ test('代打计划：用 discard/evolve 冒充主行动不会让回合卡住（�
   }
 });
 
-test('humansConnected：电脑不算；真人全部断线时为 false（DO 据此暂停电脑回合），重连后恢复', () => {
+test('humansConnected：电脑不算；真人全部断线时为 false（服务端据此暂停电脑回合），重连后恢复', () => {
   const { room } = makeRoom();
   room.onMessage('cA', { t: 'join', token: 'tA' });
   room.onMessage('cA', { t: 'addAI' });

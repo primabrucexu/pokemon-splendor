@@ -6,7 +6,9 @@
 
 > 卡牌美术与数值均源自 Tabletop Simulator 模组「**璀璨宝石：宝可梦（自动脚本）**」。由于模组只把分值写进卡面，本项目用视觉识别从 100 张原始卡面逐张提取了：捕捉成本、折扣球、奖杯点数、进化目标与进化花费，并经二次复核 + 标签交叉校验。
 
-## 直接游玩
+## 快速开始
+
+### 单机模式
 
 双击打开 `index.html` 即可（纯静态，无需服务器）。
 若浏览器对本地文件有跨域限制，用任意静态服务器起一个本地服务：
@@ -21,15 +23,27 @@ npx serve .
 
 刷新或退出后，开局界面会提供「▶ 继续上一局」——每个回合边界都会把对局快照存到 `localStorage`。
 
+### 联机模式
+
+联机模式需要 **Python 3.11+** 和 **Node.js 20+**：
+
+```bash
+python -m pip install -r requirements.txt
+python main.py
+```
+
+然后访问 http://127.0.0.1:8000 。同一局的其他玩家需要访问这台服务，而不是分别打开本地
+`index.html`。局域网开放方式和其他启动参数见下方「启动参数」。
+
 ## 在线联机对战
 
 点开局界面的 **🌐 创建联机房间** 生成一个房间码（可「复制邀请链接」分享），其他玩家用 **🔗 加入房间** 输入房间码即可入座；房主（第一个进房的人）点「开始游戏」发牌。
 
 - **服务器权威**：每一步都在服务端用引擎校验（座位即所有权），每个客户端只收到对自己**脱敏**后的状态（看不到牌堆顺序与对手保留牌）。
 - **断线重连**：身份用本地 token 绑定座位，刷新 / 掉线后用同一浏览器重连即可复位座位与隐藏手牌。
-- **超时代打**：某玩家超过 **3 分钟**未行动，房主的「研究级 AI」会仅凭公共信息接管该回合，避免卡局。
+- **超时代打**：某玩家超过 **3 分钟**未行动，其他在座玩家可触发 AI 代打，服务端会校验超时并验证每一步，避免卡局。
 
-联机依赖一个 Cloudflare Worker（见下「部署」），纯静态托管（如 GitHub Pages）只能单机热座 + AI，无法联机。
+联机由本项目的 Python 服务提供（见下「启动参数」和「联机服务与部署」）。直接双击 HTML 或只做纯静态托管时，仍只能使用单机热座和 AI。
 
 ## 玩法要点
 
@@ -49,6 +63,7 @@ npx serve .
 ## 项目结构
 
 ```
+main.py             主启动入口（main 函数、监听地址和端口参数）
 index.html          入口
 css/style.css       样式（含 CSS 绘制的精灵球 / 动画 / 联机大厅）
 js/engine.js        纯逻辑游戏引擎（规则 / 进化 / 计分 / 脱敏 / 合法动作），浏览器与 Node 通用
@@ -57,15 +72,17 @@ js/vsearch.js       「究极」难度：可复现的信息集 MCTS（仅 2 人�
 js/cards.js         卡牌数据库（自动生成，勿手改）
 js/megas.js         超级进化扩展 · js/pokemart.js  PokéMart 商店扩展
 js/net.js           联机客户端传输（window.Net：WebSocket + 心跳 + token 重连）
-js/room.js          联机房间权威（纯逻辑，浏览器与 Node 通用，可 headless 单测）
+js/room.js          联机房间权威（纯逻辑，由 Python 启动的隔离 Node 进程复用）
 js/tutorial.js      基础 / Mega / PokéMart 三套交互教程
 js/ui.js            界面与交互
-worker/index.js     Cloudflare Worker 入口 + 每房间一个 Durable Object（仅加传输，规则全在 room.js）
+server/app.py       Python/FastAPI 联机服务（WebSocket、SQLite 快照、AI 调度、静态文件）
+server/__main__.py  `python -m server` 兼容入口
+server/room_bridge.js 每个活跃房间的 JS 规则桥接进程（规则仍只有 room.js 一份）
 data/cards.json     卡牌数据库（供 Node 测试）· data/megas.json · data/pokemart.json
 assets/cards/       100 张基础卡面 + 30 张 PokéMart 卡面 + 牌背
 manifest.json sw.js PWA 清单与离线缓存
 test/               Node 单元测试（引擎 / AI / 扩展 / 联机房间）
-wrangler.jsonc      Cloudflare 部署配置（静态资源 + Durable Object + 自定义域名）
+requirements.txt    Python 服务依赖
 ```
 
 ## 开发与测试
@@ -75,6 +92,7 @@ node test/engine.test.js   # 引擎规则 + 100 局自走验证（含计分/进�
 node test/ai.test.js       # AI 强度（对贪心基线胜率）/ 终局 / 延迟
 node test/ai_expansions.test.js # PokéMart/Mega AI、暗牌公平性、搜索稳定性
 node test/room.test.js     # 联机房间权威（座位/脱敏/重连/持久化/超时代打）
+python test/python_server_test.py # Python ↔ JS 桥接、进程重启恢复与 SQLite 快照
 node test/megas.test.js    # 超级进化扩展
 node test/pokemart.test.js # PokéMart 商店扩展
 node test/tutorial_layout.test.js # 新手教程气泡布局（永不遮挡行动栏/目标）
@@ -89,15 +107,50 @@ python test/mobile_ux_audit.py     # 手机/小屏/横屏 UX 审计（playwright
 `python test/tutorial_actions.test.py` 另外验证桌面、手机与横屏商店教程：卡牌 → 购买按钮的
 高亮切换、结束回合提示、可展开规则及关联卡弹窗（Chromium / WebKit）。
 
-联机身份回归：`node test/room.test.js`、`node test/net_identity.test.js`、
-`node test/worker_identity.test.js`。最后一项使用内存存储和模拟 WebSocket 检查真实 Worker
-消息处理器的休眠恢复逻辑，不替代 Cloudflare 环境集成测试。
+联机身份与服务回归：`node test/room.test.js`、`node test/net_identity.test.js`、
+`python test/python_server_test.py`。Python 测试会启动真实 Node 规则进程并验证 SQLite
+快照，但不能替代部署后的双浏览器联机测试。
 启动上述本地服务器后，`python test/ui_names.test.py` 验证昵称和日志不会被解析为 HTML。
 
-## 部署
+## 启动参数
 
-- **纯静态**（单机热座 + AI）：任意静态托管即可（如 GitHub Pages），双击 `index.html` 同款。
-- **含联机**：用 Cloudflare Workers 部署（`npx wrangler deploy`）。`wrangler.jsonc` 已配置 ASSETS 静态资源绑定、`Room` Durable Object 与自定义域名；Worker 把 `/room/:code/ws` 路由到对应房间的 DO，其余路径回退静态资源。
+默认仅监听本机地址 `127.0.0.1:8000`：
+
+```bash
+python main.py
+```
+
+通过 `--host` 和 `--port` 修改监听地址、端口。例如允许局域网设备连接并改用 8080 端口：
+
+```bash
+python main.py --host 0.0.0.0 --port 8080
+```
+
+此时其他设备应访问服务器的实际局域网 IP，例如 `http://192.168.1.10:8080`；
+`0.0.0.0` 只是监听地址，不是浏览器访问地址。如无法连接，还需在服务器防火墙中放行所用
+端口。查看完整参数：
+
+```bash
+python main.py --help
+```
+
+兼容入口 `python -m server` 支持完全相同的参数。
+
+## 联机服务与部署
+
+Python 负责 WebSocket、房间生命周期、SQLite 持久化、静态文件和电脑回合调度；每个活跃
+房间会启动一个隔离的 Node 进程，直接复用现有 JS 权威规则，避免维护第二份游戏规则。
+
+页面与 WebSocket 必须由这个 Python 服务从同一域名提供。浏览器会自动连接
+`/room/<房间码>/ws`，无需修改前端地址。房间快照默认保存在 `var/rooms.sqlite3`；可用
+环境变量 `POKEMON_SPLENDOR_DB` 指定其他位置。
+
+公网部署应在 Uvicorn 前使用支持 WebSocket 的 HTTPS 反向代理，并持久化保存 SQLite
+文件。单个 Python 实例才能保证同一房间只由一个权威进程管理，因此不要直接启动多个
+Uvicorn worker。
+
+- **纯静态**（单机热座 + AI）：仍可双击 `index.html`，或部署到任意静态托管。
+- **含联机**：运行 `python main.py`，不要再使用 `python -m http.server`。
 
 ## 致谢
 

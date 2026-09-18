@@ -1,10 +1,10 @@
 /* =====================================================================
  * 璀璨宝石：宝可梦  —  online client transport (window.Net)
  * ---------------------------------------------------------------------
- * One WebSocket to a room's Durable Object (worker/index.js). Handles the
+ * One WebSocket to the Python room service (server/app.py). Handles the
  * wire protocol, a stable per-room identity token (so a refresh reclaims the
- * same seat + hidden hand), a heartbeat the server auto-answers without waking
- * the DO, and auto-reconnect. It is transport only — it knows no game rules;
+ * same seat + hidden hand), a heartbeat, and auto-reconnect. It is transport
+ * only — it knows no game rules;
  * ui.js subscribes to events and drives the UI.
  *
  *   Net.connect(code, name)       open/join a room
