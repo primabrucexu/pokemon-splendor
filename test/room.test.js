@@ -116,7 +116,7 @@ test('reconnect: a NEW connId with the SAME token reclaims the seat + resyncs', 
   assert.ok(s && s.state.players[0].tokens.red === 1, 'resynced to current game state');
 });
 
-test('snapshot/restore round-trips the game (DO persistence across eviction)', () => {
+test('snapshot/restore round-trips the game (server persistence across restart)', () => {
   const { room } = makeRoom();
   room.onMessage('cA', { t: 'join', name: 'A', token: 'tA' });
   room.onMessage('cB', { t: 'join', name: 'B', token: 'tB' });
@@ -124,7 +124,7 @@ test('snapshot/restore round-trips the game (DO persistence across eviction)', (
   room.onMessage('cA', { t: 'action', seq: 1, action: TAKE });
   const snap = JSON.parse(JSON.stringify(room.snapshot()));    // simulate storage round-trip
 
-  // a fresh Room (DO woke on a new isolate) restores and a client reconnects
+  // a fresh Room process restores and a client reconnects
   const inbox2 = {};
   const room2 = new Room({ cardDB: DB, send: (cid, msg) => { (inbox2[cid] = inbox2[cid] || []).push(msg); } });
   room2.restore(snap);
@@ -172,7 +172,7 @@ test('FIX3: rebind silently restores a seat by token (hibernation wake, no messa
   room.onMessage('cA', { t: 'join', name: 'A', token: 'tA' });
   room.onMessage('cB', { t: 'join', name: 'B', token: 'tB' });
   room.onMessage('cA', { t: 'start', opts: {} });
-  const snap = JSON.parse(JSON.stringify(room.snapshot()));        // DO hibernates → new isolate
+  const snap = JSON.parse(JSON.stringify(room.snapshot()));        // server unloads → new process
   const inbox2 = {};
   const room2 = new Room({ cardDB: DB, send: (cid, msg) => { (inbox2[cid] = inbox2[cid] || []).push(msg); } });
   room2.restore(snap);

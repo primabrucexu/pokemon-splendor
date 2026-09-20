@@ -5,13 +5,16 @@ assets/policy.json
 
 .claude/
 
-# wrangler files
-.wrangler
-.dev.vars*
-!.dev.vars.example
+# local environment files
 .env*
 !.env.example
 _rep_*.json
+
+# Python online server runtime
+__pycache__/
+*.py[cod]
+var/*.sqlite3
+var/*.sqlite3-*
 
 # mobile UX audit screenshots (dev tool output)
 test/_ux_audit/

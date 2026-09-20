@@ -2,9 +2,9 @@
  * 璀璨宝石：宝可梦  —  online Room authority (pure, transport-agnostic)
  * ---------------------------------------------------------------------
  * Holds the canonical game state for ONE online room and turns inbound
- * player messages into outbound (per-player) messages. The SAME class runs
- * inside a Cloudflare Durable Object (worker/index.js); only the transport
- * differs. No WebSocket / DOM / DO code lives here, so it is unit-testable
+ * player messages into outbound (per-player) messages. The SAME class runs in
+ * the isolated Node bridge started by server/app.py; only the transport differs.
+ * No WebSocket / DOM / Python server code lives here, so it is unit-testable
  * headless (test/room.test.js, test/room_lobby.test.js).
  *
  * It injects a `send(connId, msg)` callback (the transport) and never reaches
@@ -122,7 +122,7 @@
       this.hostToken = null; // token of the host (first human to join); survives seat reordering
       this.shuffleCount = 0; // how many times the host randomized the order in this lobby (shown to all)
       this.turnStartedAt = 0; // server ms when the current turn began (idle-timeout base)
-      this.now = 0;         // current server ms, injected by the DO before each handler
+      this.now = 0;         // current server ms, injected before each handler
     }
 
     // ------------------------------ identity -------------------------------
@@ -190,7 +190,7 @@
       this._roster();
     }
 
-    // Quiet transport re-attach after the DO hibernates: restore a connId→seat
+    // Quiet transport re-attach after the server reloads: restore a connId→seat
     // mapping by token ONLY — no welcome/roster/state side-effects (those happen
     // when the client itself re-sends join/sync on a real reconnect). Works even
     // before the game has started, so a lobby that hibernated isn't bricked.
@@ -405,8 +405,8 @@
     // from public info), so it never sees opponents' reserves or the deck order. Never
     // stalls: a missing AI module or a thrown/invalid plan falls back to a legal move.
     //
-    // `attempt` = how many times this very bot turn already failed to finish (the DO
-    // passes its alarm retry count, e.g. after the platform killed an over-CPU-budget
+    // `attempt` = how many times this very bot turn already failed to finish (the server
+    // passes its retry count, e.g. after the rule process exceeded its time budget
     // think). Each retry thinks more cheaply, so one expensive bot can never wedge a room.
     stepAI(attempt) {
       if (!this.aiPending()) return false;
@@ -510,8 +510,8 @@
     }
     _broadcast(msg) { for (const cid in this.conns) this.send(cid, msg); }
 
-    // ----------------------- persistence (for the DO) ----------------------
-    // The DO snapshots this to durable storage and restores it on wake, so a
+    // --------------------- persistence (for the server) --------------------
+    // The Python server snapshots this to SQLite and restores it on wake, so a
     // room survives eviction/restart. Live connections (conns) are NOT persisted
     // — clients reconnect with their token and re-sync. Seats keep their token,
     // so reconnecting players reclaim their seat and hidden hand.
