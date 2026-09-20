@@ -99,7 +99,7 @@
   const baseSteps = [
     {
       title: '欢迎来到训练家学院 🎓',
-      html: '这是《璀璨宝石·宝可梦》。核心其实只有一句话：<br><b>收集精灵球 → 捕捉宝可梦得分 → 进化拿更高分</b>。<br>本练习里先凑够分数（约 <b>8</b> 分）就算冠军（正式对局是 18 分）。<br><br>看屏幕里的「我的资源」：你已经捕捉了 <b>2 只凯西</b>，它们给了你 <b>2 个粉色折扣</b>，等下有用。',
+      html: '这是《璀璨宝石·宝可梦》。核心其实只有一句话：<br><b>收集精灵球 → 捕捉宝可梦得分 → 进化拿更高分</b>。<br>本练习里先凑够分数（约 <b>8</b> 分）就算冠军（正式对局是 18 分）。<br><br>看右侧自己的玩家卡片：你已经捕捉了 <b>2 只凯西</b>，它们给了你 <b>2 个粉色折扣</b>，等下有用。',
       next: true,
     },
     {
@@ -157,7 +157,7 @@
   const megaSteps = [
     {
       title: '超级进化扩展 ⚡',
-      html: '有些宝可梦能变身成更强的 <b>Mega 形态</b>（分数更高、折扣更多）。<br>你已经捕捉了 <b>耿鬼</b>（看「我的资源」），我们来把它超级进化！',
+      html: '有些宝可梦能变身成更强的 <b>Mega 形态</b>（分数更高、折扣更多）。<br>你已经捕捉了 <b>耿鬼</b>（看自己的玩家卡片），我们来把它超级进化！',
       next: true,
     },
     {
@@ -318,9 +318,9 @@
     bubble.classList.remove('tut-compact');
     bubble.style.maxHeight = '';                       // measure the natural height, not a previous cap
     const bh = Math.min(bubble.offsetHeight, viewH - safe * 2);
-    // The lesson's follow-up tap (拿取 N 个 / 捕捉 / 保留 / 进化) lives in #action-bar, which sits
-    // right above the supply. Keep the bubble off the bar as well as the target — on a phone the
-    // "above the target" slot IS the bar, and a covered confirm button can't be pressed.
+    // The lesson's follow-up tap (拿取 N 个 / 捕捉 / 保留 / 进化) lives in #action-bar beside
+    // the supply. Keep the bubble off the bar as well as the target so a covered confirm button
+    // never blocks the lesson.
     // Only vertically avoid things in the bubble's horizontal lane. On desktop
     // the right sidebar and a board card can span almost the entire height while
     // leaving the centre lane empty; merging them forced the guide offscreen.

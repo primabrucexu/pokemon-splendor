@@ -36,11 +36,13 @@
  *                   {t:'addAI', level}           host, lobby: add a bot seat
  *                   {t:'removeAI', seat, name}   host, lobby: remove a bot seat (name = the bot as seen; stale → reject)
  *                   {t:'aiLevel', seat, level, name}  host, lobby: change a bot's difficulty
+ *                   {t:'kick', seat, name, rosterVersion} host: remove a human in lobby, or hand them to AI mid-game
  *                   {t:'shuffle'}                host, lobby: randomize seat/turn order
  *   room → client:  {t:'welcome', connId, seat, host}   (re-sent whenever my seat index changes)
- *                   {t:'roster', players:[{seat,name,connected,ai}], hostSeat, started, maxSeats, shuffleCount}
+ *                   {t:'roster', players:[{seat,name,connected,ai,reclaimable}], hostSeat, started, maxSeats, shuffleCount, rosterVersion}
  *                   {t:'shuffled', count, first}  the host randomized the order (count = rerolls this lobby)
  *                   {t:'notice', msg}            short room-wide announcement (a joining friend replaced a bot)
+ *                   {t:'kicked', reconnectable, reason} target was removed or handed to AI by the host
  *                   {t:'state', seq, state}      redacted snapshot for this viewer
  *                   {t:'reject', reason, seq}
  *                   {t:'lobby'}                  back to the lobby (rematch)
@@ -120,6 +122,8 @@
       this.seats = [];      // seats[i] = { token, name, connId|null, connected, ai:null|level }
       this.conns = {};      // live connId -> seat index (>=0 seated, -1 spectator)
       this.hostToken = null; // token of the host (first human to join); survives seat reordering
+      this.kickedTokens = new Set(); // lobby kicks cannot reclaim a seat in this room
+      this.rosterVersion = 0; // rejects a kick aimed from a stale/reordered roster
       this.shuffleCount = 0; // how many times the host randomized the order in this lobby (shown to all)
       this.options = { megas: false, pokemart: false }; // host-owned lobby expansion choices
       this.turnStartedAt = 0; // server ms when the current turn began (idle-timeout base)
@@ -141,12 +145,16 @@
     // ----------------------------- connections -----------------------------
     join(connId, name, token) {
       if (!validToken(token)) return this.send(connId, { t: 'reject', reason: '无效的玩家身份，请重新连接' });
+      if (this.kickedTokens.has(token)) {
+        return this.send(connId, { t: 'kicked', reconnectable: false, reason: '你已被房主移出房间' });
+      }
       const current = this.conns[connId];
       if (current != null && current >= 0 && this.seats[current].token !== token) {
         return this.send(connId, { t: 'reject', reason: '同一连接不能重复占座' });
       }
-      // reconnect: a HUMAN seat already bound to this stable token
-      let seat = this.seats.findIndex(s => !s.ai && s.token === token), replacedBot = null;
+      // reconnect: a HUMAN seat already bound to this stable token. A seat handed
+      // to AI by the host keeps its token, so the original player can reclaim it.
+      let seat = this.seats.findIndex(s => s.token === token), replacedBot = null, reclaimed = false;
       if (seat < 0) {                                           // a new player
         if (this.started) seat = -1;                            // can't take a seat mid-game → spectator
         else {
@@ -159,13 +167,22 @@
             // Room is full but some seats are bots: a real person beats a bot. Take over
             // the LAST bot seat (pre-start only), so an invited friend is never locked out.
             // The whole room is told which bot made way, so a bot never silently vanishes.
-            for (let i = this.seats.length - 1; i >= 0; i--) if (this.seats[i].ai) { seat = i; break; }
+            for (let i = this.seats.length - 1; i >= 0; i--) if (this.seats[i].ai && !this.seats[i].token) { seat = i; break; }
             if (seat >= 0) { replacedBot = this.seats[seat].name; this.seats[seat] = humanSeat(); }
           }
         }
       }
       if (seat >= 0) {
         const st = this.seats[seat];
+        reclaimed = !!(st.ai && st.token === token);
+        if (reclaimed) {
+          st.ai = null;
+          if (this.G && this.G.players[seat]) {
+            this.G.players[seat].isAI = false;
+            this.G.players[seat].diff = null;
+          }
+          this.seq++;
+        }
         st.token = token;
         this._bind(connId, seat, true);
         st.name = cleanName(name) || st.name || ('训练家 ' + (seat + 1));
@@ -177,7 +194,10 @@
       this.send(connId, { t: 'welcome', connId, seat: this.conns[connId], host: this._isHost(connId) });
       this._roster();
       if (replacedBot) this._broadcast({ t: 'notice', msg: this.seats[seat].name + ' 加入了房间，替换了' + replacedBot });
-      if (this.started) this._stateTo(connId);                  // reconnect → resend snapshot
+      if (reclaimed) {
+        this._broadcast({ t: 'notice', msg: this.seats[seat].name + ' 已重新连接，恢复真人控制' });
+        this._broadcastState();
+      } else if (this.started) this._stateTo(connId);           // reconnect → resend snapshot
       return this.conns[connId];
     }
 
@@ -196,7 +216,8 @@
     // when the client itself re-sends join/sync on a real reconnect). Works even
     // before the game has started, so a lobby that hibernated isn't bricked.
     rebind(connId, token) {
-      const seat = validToken(token) ? this.seats.findIndex(s => !s.ai && s.token === token) : -1;
+      const seat = validToken(token) && !this.kickedTokens.has(token)
+        ? this.seats.findIndex(s => !s.ai && s.token === token) : -1;
       if (seat >= 0) this._bind(connId, seat);
       else this.conns[connId] = -1;
       return this.conns[connId];
@@ -227,6 +248,7 @@
         case 'addAI':    return this._addAI(connId, msg.level);
         case 'removeAI': return this._removeAI(connId, msg.seat, msg.name);
         case 'aiLevel':  return this._setAILevel(connId, msg.seat, msg.level, msg.name);
+        case 'kick':     return this._kick(connId, msg.seat, msg.name, msg.rosterVersion);
         case 'shuffle':  return this._shuffle(connId);
         case 'options':  return this._setOptions(connId, msg.options);
         case 'sync':     return this._stateTo(connId);
@@ -267,6 +289,11 @@
       this.started = false;
       this.turnStartedAt = 0;
       this.shuffleCount = 0;
+      // A mid-game kick is only an AI takeover for that game. Back in the lobby
+      // the seat is again a disconnected human seat that can be reclaimed.
+      this.seats.forEach(s => {
+        if (s.ai && s.token) { s.ai = null; s.connected = false; s.connId = null; }
+      });
       this.seq++;
       this._broadcast({ t: 'lobby' });                          // 客户端据此回到大厅界面
       this._roster();
@@ -320,6 +347,52 @@
       if (this.seats[seat].ai === level) return;
       this.seats[seat].ai = level;
       this._roster();
+    }
+    _kick(connId, seat, name, rosterVersion) {
+      if (!this._isHost(connId)) return this.send(connId, { t: 'reject', reason: '只有房主可以踢人' });
+      if (!Number.isInteger(rosterVersion) || rosterVersion !== this.rosterVersion) {
+        return this.send(connId, { t: 'reject', reason: '房间名单已变化，请按最新名单再操作' });
+      }
+      seat = Number(seat);
+      const st = Number.isInteger(seat) ? this.seats[seat] : null;
+      if (!st || (name != null && st.name !== name)) {
+        return this.send(connId, { t: 'reject', reason: '房间名单已变化，请按最新名单再操作' });
+      }
+      if (!st.token) return this.send(connId, { t: 'reject', reason: '该座位不是可踢出的真人玩家' });
+      if (st.token === this.hostToken) return this.send(connId, { t: 'reject', reason: '房主不能踢出自己' });
+      if (st.ai) return this.send(connId, { t: 'reject', reason: '该玩家已由电脑接管' });
+
+      const targetConn = st.connId;
+      if (this.started) {
+        st.ai = DEFAULT_AI_LEVEL;
+        st.connected = true;
+        st.connId = null;
+        if (targetConn) {
+          this.send(targetConn, { t: 'kicked', reconnectable: true, reason: '你已被房主转为电脑接管，之后可重新连接恢复座位' });
+          delete this.conns[targetConn];
+        }
+        if (this.G && this.G.players[seat]) {
+          this.G.players[seat].isAI = true;
+          this.G.players[seat].diff = DEFAULT_AI_LEVEL;
+          this.G.log.push({ turn: this.G.turn, round: this.G.round, msg: `🤖 ${st.name} 已由电脑接管` });
+        }
+        this.seq++;
+        this._roster();
+        this._broadcast({ t: 'notice', msg: st.name + ' 已由电脑接管，可在之后重新连接' });
+        this._broadcastState();
+        return;
+      }
+
+      this.kickedTokens.add(st.token);
+      if (targetConn) {
+        this.send(targetConn, { t: 'kicked', reconnectable: false, reason: '你已被房主移出房间' });
+        delete this.conns[targetConn];
+      }
+      const kickedName = st.name;
+      const order = [];
+      for (let i = 0; i < this.seats.length; i++) if (i !== seat) order.push(i);
+      this._reorderSeats(order, false);
+      this._broadcast({ t: 'notice', msg: kickedName + ' 已被房主移出房间' });
     }
     // Randomize seat (= turn) order with a uniform Fisher–Yates shuffle over crypto
     // randomness. It is deliberately NOT forced to differ from the current order:
@@ -513,10 +586,12 @@
       });
     }
     _roster() {
+      this.rosterVersion++;
       const players = this.seats.map((s, i) => ({
         seat: i, name: s.name, connected: s.ai ? true : s.connected, ai: s.ai || null,
+        reclaimable: !!(s.ai && s.token),
       }));
-      this._broadcast({ t: 'roster', players, hostSeat: this._hostSeat(), started: this.started, maxSeats: this.maxSeats, shuffleCount: this.shuffleCount, options: this.options });
+      this._broadcast({ t: 'roster', players, hostSeat: this._hostSeat(), started: this.started, maxSeats: this.maxSeats, shuffleCount: this.shuffleCount, options: this.options, rosterVersion: this.rosterVersion });
     }
     _broadcast(msg) { for (const cid in this.conns) this.send(cid, msg); }
 
@@ -529,6 +604,7 @@
       const seats = this.seats.map(s => ({ token: s.token, name: s.name, connId: null, connected: false, ai: s.ai || null }));
       return {
         seq: this.seq, started: this.started, seats, hostToken: this.hostToken, shuffleCount: this.shuffleCount, options: this.options,
+        kickedTokens: Array.from(this.kickedTokens),
         turnStartedAt: this.turnStartedAt, g: this.G ? serializeG(this.G) : null,
       };
     }
@@ -544,8 +620,10 @@
       };
       this.seats = (snap.seats || []).map(s => {
         const ai = AI_LEVELS.indexOf(s.ai) >= 0 ? s.ai : null;
-        return { token: ai ? null : s.token, name: s.name, connId: null, connected: !!ai, ai };
+        return { token: s.token || null, name: s.name, connId: null, connected: !!ai, ai };
       });
+      this.kickedTokens = new Set((snap.kickedTokens || []).filter(validToken));
+      this.rosterVersion = 0;
       // Snapshots written before hostToken existed had host = seat 0.
       const legacyHost = this.seats.find(s => !s.ai && s.token);
       this.hostToken = snap.hostToken != null ? snap.hostToken : (legacyHost ? legacyHost.token : null);

@@ -98,6 +98,96 @@ test('removeAI: 移除后后面的真人座位前移，且该真人收到新的 
   assert.strictEqual(room.G.players[1].tokens.red, 1, 'B 以新座位号 1 行动成功');
 });
 
+test('kick（大厅）：仅房主可踢其他真人；校验名单版本；移除座位并阻止原 token 重新加入', () => {
+  const { room, last, clear } = makeRoom();
+  room.onMessage('cA', { t: 'join', name: '房主', token: 'tA' });
+  room.onMessage('cB', { t: 'join', name: '玩家B', token: 'tB' });
+  room.onMessage('cC', { t: 'join', name: '玩家C', token: 'tC' });
+
+  room.onMessage('cB', { t: 'kick', seat: 2, name: '玩家C', rosterVersion: room.rosterVersion });
+  assert.ok(/只有房主/.test(last('cB', 'reject').reason), '非房主不能踢人');
+  room.onMessage('cA', { t: 'kick', seat: 1, name: '玩家B', rosterVersion: room.rosterVersion - 1 });
+  assert.ok(/名单已变化/.test(last('cA', 'reject').reason), '过期名单不能用于踢人');
+  room.onMessage('cA', { t: 'kick', seat: 0, name: '房主', rosterVersion: room.rosterVersion });
+  assert.ok(/不能踢出自己/.test(last('cA', 'reject').reason), '房主不能踢自己');
+  room.onMessage('cA', { t: 'addAI' });
+  room.onMessage('cA', { t: 'kick', seat: 3, name: '电脑1', rosterVersion: room.rosterVersion });
+  assert.ok(/真人玩家/.test(last('cA', 'reject').reason), '普通电脑使用移除电脑功能，不能按踢人处理');
+
+  clear();
+  room.onMessage('cA', { t: 'kick', seat: 1, name: '玩家B', rosterVersion: room.rosterVersion });
+  assert.strictEqual(room.seats.length, 3);
+  assert.deepStrictEqual(room.seats.map(s => s.token), ['tA', 'tC', null]);
+  assert.strictEqual(last('cB', 'kicked').reconnectable, false);
+  assert.strictEqual(last('cC', 'welcome').seat, 1, '后续真人座位前移并收到新座位号');
+  room.onMessage('cB2', { t: 'join', name: '玩家B', token: 'tB' });
+  assert.strictEqual(last('cB2', 'kicked').reconnectable, false, '原 token 不能重新加入该房间');
+
+  const snap = JSON.parse(JSON.stringify(room.snapshot()));
+  const restoredInbox = {};
+  const restored = new Room({ cardDB: DB, send: (c, m) => { (restoredInbox[c] = restoredInbox[c] || []).push(m); } });
+  restored.restore(snap);
+  restored.onMessage('cB3', { t: 'join', name: '玩家B', token: 'tB' });
+  assert.strictEqual(restoredInbox.cB3.pop().t, 'kicked', '大厅踢人封禁随快照恢复');
+});
+
+test('kick（对局中）：座位转为普通电脑，保留状态与 token，原玩家重连后恢复真人控制', () => {
+  const { room, last } = makeRoom();
+  room.onMessage('cA', { t: 'join', name: '房主', token: 'tA' });
+  room.onMessage('cB', { t: 'join', name: '玩家B', token: 'tB' });
+  room.onMessage('cA', { t: 'start', opts: {} });
+  room.onMessage('cA', { t: 'action', action: { type: 'take', colors: ['red', 'blue', 'black'] } });
+  room.onMessage('cA', { t: 'action', action: { type: 'endTurn' } });
+  const before = JSON.parse(JSON.stringify(room.G.players[1]));
+
+  room.onMessage('cA', { t: 'kick', seat: 1, name: '玩家B', rosterVersion: room.rosterVersion });
+  assert.strictEqual(last('cB', 'kicked').reconnectable, true);
+  assert.strictEqual(room.seats[1].token, 'tB', '保留原玩家 token');
+  assert.strictEqual(room.seats[1].ai, 'normal');
+  assert.strictEqual(room.G.players[1].isAI, true);
+  assert.strictEqual(room.G.players[1].diff, 'normal');
+  assert.strictEqual(room.G.players[1].tokens.red, before.tokens.red, '玩家资源不变');
+  assert.strictEqual(room.G.players[1].board.length, before.board.length, '玩家卡牌不变');
+  assert.strictEqual(room.conns.cB, undefined, '原连接失去座位控制权');
+  assert.ok(room.aiPending(), '正轮到被踢玩家时立即成为服务端电脑回合');
+  assert.strictEqual(last('cA', 'roster').players[1].reclaimable, true);
+
+  room.onMessage('cB2', { t: 'join', name: '玩家B', token: 'tB' });
+  assert.strictEqual(room.conns.cB2, 1);
+  assert.strictEqual(room.seats[1].ai, null);
+  assert.strictEqual(room.G.players[1].isAI, false);
+  assert.strictEqual(last('cB2', 'welcome').seat, 1);
+  assert.ok(last('cB2', 'state'), '重连后收到当前局面');
+});
+
+test('kick（对局中）：电脑接管关系可持久化；回到大厅后恢复为可重连的断线真人', () => {
+  const { room } = makeRoom();
+  room.onMessage('cA', { t: 'join', name: '房主', token: 'tA' });
+  room.onMessage('cB', { t: 'join', name: '玩家B', token: 'tB' });
+  room.onMessage('cA', { t: 'start', opts: {} });
+  room.onMessage('cA', { t: 'kick', seat: 1, name: '玩家B', rosterVersion: room.rosterVersion });
+
+  const inbox = {};
+  const restored = new Room({ cardDB: DB, ai: AI, send: (c, m) => { (inbox[c] = inbox[c] || []).push(m); } });
+  restored.restore(JSON.parse(JSON.stringify(room.snapshot())));
+  assert.strictEqual(restored.seats[1].token, 'tB');
+  assert.strictEqual(restored.seats[1].ai, 'normal');
+  restored.onMessage('cB2', { t: 'join', name: '玩家B', token: 'tB' });
+  assert.strictEqual(restored.seats[1].ai, null, '服务重启后仍可由原 token 恢复真人控制');
+
+  restored.leave('cB2');
+  restored.seats[1].ai = 'normal';
+  restored.G.players[1].isAI = true;
+  restored.G.players[1].diff = 'normal';
+  restored.G.phase = 'gameover'; restored.G.winner = 0;
+  restored.onMessage('cA2', { t: 'join', name: '房主', token: 'tA' });
+  restored.onMessage('cA2', { t: 'rematch' });
+  assert.strictEqual(restored.started, false);
+  assert.strictEqual(restored.seats[1].ai, null);
+  assert.strictEqual(restored.seats[1].token, 'tB');
+  assert.strictEqual(restored.seats[1].connected, false);
+});
+
 test('真人加入已满（含电脑）的房间：顶替最后一个电脑，不会被挡在门外', () => {
   const { room, last } = makeRoom();
   room.onMessage('cA', { t: 'join', token: 'tA' });

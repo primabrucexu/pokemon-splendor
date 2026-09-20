@@ -211,6 +211,7 @@
       UI.net.roster = m.players || []; UI.net.started = m.started;
       UI.net.hostSeat = (typeof m.hostSeat === 'number') ? m.hostSeat : -1;   // 房主按身份认，不一定坐 1 号位
       UI.net.maxSeats = m.maxSeats || 4;
+      UI.net.rosterVersion = Number.isInteger(m.rosterVersion) ? m.rosterVersion : 0;
       if (typeof m.shuffleCount === 'number') UI.net.shuffleCount = m.shuffleCount;   // 刷新/晚到的人也看得到房主重随过几次
       UI.net.options = m.options || { megas: false, pokemart: false };
       UI.net.aiKicks = 0;
@@ -221,6 +222,12 @@
     Net.on('reject', (m) => { if (UI.net) { UI.net.takeoverBusy = false; UI.net.pendingAction = false; } flashHint((m && m.reason) || '操作被拒绝'); if (G) render(); });
     Net.on('over', () => { });
     Net.on('notice', (m) => { if (UI.net && m && m.msg) flashHint(m.msg, 'info'); });   // 例如：朋友加入满员房间、顶替了一个电脑
+    Net.on('kicked', (m) => {
+      if (!UI.net) return;
+      const msg = (m && m.reason) || '你已被房主移出房间';
+      leaveOnline();
+      flashHint(msg, 'info');
+    });
     // 房主随机了座位顺序：人人都看得到结果和「第几次」—— 反复重随抢先手会被全桌看见
     Net.on('shuffled', (m) => {
       if (!UI.net) return;
@@ -277,6 +284,10 @@
               Object.keys(AI_LEVEL_ZH).map(lv => `<option value="${lv}"${lv === p.ai ? ' selected' : ''}>${AI_LEVEL_ZH[lv]}</option>`).join('') +
               `</select><button class="ghost lr-x" data-remove="${p.seat}" aria-label="移除 ${escapeHTML(p.name)}" title="移除电脑">✕</button>`
             : `<span class="lr-lv">${AI_LEVEL_ZH[p.ai] || ''}</span>`;
+          if (p.reclaimable) tail += '<span class="lr-reclaim">可重连</span>';
+        }
+        if (host && UI.net.status === 'connected' && !you && p.seat !== UI.net.hostSeat && !p.ai) {
+          tail += `<button class="ghost lr-kick" data-kick="${p.seat}" aria-label="踢出 ${escapeHTML(p.name)}">踢出</button>`;
         }
         return `<div class="lr-row${you ? ' me' : ''}">${mark}<span class="lr-seat" aria-hidden="true">${p.seat + 1}</span>` +
           `<span class="lr-name">${escapeHTML(p.name)}${you ? '（你）' : ''}<span class="sr-only">${sr}</span></span>${tail}</div>`;
@@ -661,7 +672,7 @@
     const focusKey = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.focusKey : '';
     const rowScroll = {};
     $$('#field [data-row-key]').forEach(el => { rowScroll[el.dataset.rowKey] = el.scrollLeft; });
-    renderBanner(); renderScoreStrip(); renderField(); renderMyResources(); renderSupply(); renderActionBar(); renderPlayers(); renderLog(); renderNetBar();
+    renderBanner(); renderScoreStrip(); renderField(); renderSupply(); renderActionBar(); renderPlayers(); renderLog(); renderNetBar();
     document.body.classList.toggle('has-card-selection', !!UI.selCard && UI.phase === 'main');
     for (const key in rowScroll) { const el = $(`#field [data-row-key="${key}"]`); if (el) el.scrollLeft = rowScroll[key]; }
     if (focusKey) requestAnimationFrame(() => { const el = document.querySelector(`[data-focus-key="${focusKey}"]`); if (el) el.focus({ preventScroll: true }); });
@@ -670,26 +681,6 @@
     syncDockH();       // keep mobile bottom-dock clearance in sync with its current height
     if (G && G.phase === 'gameover') clearSave();   // finished game → nothing to resume
     if (window.Tutorial && Tutorial.onRender) { try { Tutorial.onRender(G, UI); } catch (e) { } } // drive the tutorial coach
-  }
-
-  // active player's held tokens + permanent bonus discounts, pinned in the dock so you
-  // never have to scroll to your own panel to plan a purchase.
-  function renderMyResources() {
-    const host = $('#my-resources'); if (!host) return;
-    const p = me();
-    if (!p || p.isAI || G.phase === 'gameover') { host.innerHTML = ''; host.style.display = 'none'; return; }
-    host.style.display = '';
-    const b = E.bonuses(G, p);
-    let chips = '';
-    for (const c of E.COLORS) {
-      chips += `<div class="mychip" aria-label="${BALL_NAMES[c]}：手中 ${p.tokens[c]} 个，永久折扣 ${b[c]}">
-        <div class="ball ${c} sm" aria-hidden="true"></div>
-        <span class="mc-tok"><small>球</small>${p.tokens[c]}</span><span class="mc-bon"><small>折</small>${b[c]}</span>
-      </div>`;
-    }
-    chips += `<div class="mychip master" aria-label="大师球：手中 ${p.tokens.purple} 个"><div class="ball purple sm" aria-hidden="true"></div><span class="mc-tok"><small>球</small>${p.tokens.purple}</span></div>`;
-    if (G.megasEnabled) chips += `<div class="mychip mega" aria-label="Mega 代币：持有 ${p.megaToken} 个"><div class="ball mega-token sm" aria-hidden="true"></div><span class="mc-tok">${p.megaToken}</span></div>`;
-    host.innerHTML = `<span class="mc-label">我的资源 · ${escapeHTML(p.name)} · 球 ${E.tokenTotal(p)}/${E.TOKEN_MAX}</span><div class="mychips">${chips}</div>`;
   }
 
   function renderBanner() {
@@ -816,97 +807,7 @@
     for (let k = 1; k <= dex; k++) { const pp = E.computePayment(G, p, card, k * 2); if (pp.ok) return { master: pp.pay.purple, pokedex: k }; }
     return null;
   }
-  function acquireBlockReason(card) {
-    const p = me();
-    if (E.isPokemart(card) && card.effect === 'discard_buy') {
-      const col = card.effectParam.discardColor, need = card.effectParam.discardCount;
-      const have = p.board.filter(id => E.effBonusColor(G, p, id) === col).length;
-      return `需弃掉 ${need} 张${BALL_NAMES[col]}奖励卡，你现有 ${have} 张`;
-    }
-    if (E.isPokemart(card) && (card.effect === 'copy' || card.effect === 'copy_free') && !p.board.some(id => E.effBonusColor(G, p, id))) {
-      return '需先拥有至少 1 张带颜色奖励的卡，用于复制折扣';
-    }
-    return '';
-  }
   const captureAffordable = (card) => !!affordInfo(card);
-
-  // --- purchase ledger: an at-a-glance payment breakdown shown when a card is
-  // selected. Per colour it shows 需(required) · 抵(covered free by bonuses, no
-  // ball spent) · 交(balls handed back to the supply), how many 大师球 (Master /
-  // wildcard) fill the shortfall, then an aggregate "你交出" strip of the exact
-  // balls leaving your stash. Colour-blind safe: every state carries a symbol
-  // (斜线=抵扣 / 实心=交出 / ★=大师) + numerals, never colour alone (WCAG 1.4.1).
-  // Derives the same split as E.paymentBreakdown but also renders a preview when
-  // the card isn't affordable yet. `info` = affordInfo(card) result (or null).
-  function purchaseLedgerHTML(card, info) {
-    // Repel (discard_buy) is bought by discarding cards, not balls → no ball ledger.
-    if (E.isPokemart(card) && card.effect === 'discard_buy') return '';
-    const p = me();
-    const b = E.bonuses(G, p);
-    const rows = [];
-    let wildNeed = 0;
-    for (const c of E.COLORS) {
-      const required = card.cost[c] || 0;
-      if (!required) continue;
-      const bonusCovered = Math.min(required, b[c]);
-      const remaining = required - bonusCovered;
-      const paidColor = Math.min(remaining, p.tokens[c]);
-      rows.push({ color: c, required, bonusCovered, paidColor, paidWild: remaining - paidColor });
-      wildNeed += remaining - paidColor;
-    }
-    const mandatory = card.cost.purple || 0;                 // rare/legend printed Master
-    const virtual = info && info.pokedex ? info.pokedex * 2 : 0; // wildcard from discarding 图鉴
-    const masterNeed = wildNeed + mandatory;
-    const masterFromStash = Math.max(0, masterNeed - virtual);
-    const affordable = !!info;
-    const masterShort = Math.max(0, masterNeed - p.tokens.purple - virtual);
-    if (!rows.length && !mandatory) return ''; // no ball cost at all
-
-    const pip = (extra) => `<span class="pip ball ${extra}"></span>`;
-    let rowsHtml = '';
-    for (const r of rows) {
-      let pips = '';
-      for (let i = 0; i < r.bonusCovered; i++) pips += pip(r.color + ' pip-bonus');
-      for (let i = 0; i < r.paidColor; i++) pips += pip(r.color + ' pip-paid');
-      for (let i = 0; i < r.paidWild; i++) pips += pip('purple pip-wild');
-      const disc = r.bonusCovered ? ` <span class="pl-disc">−抵${r.bonusCovered}</span>` : '';
-      const wild = r.paidWild ? ` <span class="pl-wild">(${r.paidWild}★)</span>` : '';
-      rowsHtml += `<div class="pl-row">
-          <span class="pl-name"><span class="ball ${r.color} xs"></span>${BALL_NAMES[r.color]}</span>
-          <span class="pl-pips">${pips}</span>
-          <span class="pl-calc">需${r.required}${disc} = 交<b class="pl-pay">${r.paidColor + r.paidWild}</b>${wild}</span>
-        </div>`;
-    }
-    if (mandatory) {
-      let pips = '';
-      for (let i = 0; i < mandatory; i++) pips += pip('purple pip-wild');
-      rowsHtml += `<div class="pl-row">
-          <span class="pl-name"><span class="ball purple xs"></span>大师球·必需</span>
-          <span class="pl-pips">${pips}</span>
-          <span class="pl-calc">需${mandatory} = 交<b class="pl-pay">${mandatory}</b></span>
-        </div>`;
-    }
-
-    let hoChips = '';
-    for (const r of rows) if (r.paidColor) hoChips += `<span class="ho-chip"><span class="ball ${r.color} sm"></span>×${r.paidColor}</span>`;
-    if (masterFromStash) hoChips += `<span class="ho-chip ho-master"><span class="ball purple sm"></span>★×${masterFromStash}</span>`;
-
-    let body;
-    if (!affordable) {
-      body = `<div class="pl-short">⚠ 还差 <b>${masterShort}</b> 个球才能购买（大师球可抵任意颜色）</div>`;
-    } else if (!hoChips) {
-      body = `<div class="pl-free">✓ 免费！奖励已全额抵扣，无需交出任何球</div>`;
-    } else {
-      const vNote = virtual ? `<span class="pl-vnote">（含弃置图鉴抵充 ${virtual}）</span>` : '';
-      body = `<div class="handover"><span class="ho-label">你交出</span>${hoChips}<span class="ho-arrow">→ 供应区</span>${vNote}</div>`;
-    }
-
-    const legend = rows.some(r => r.bonusCovered || r.paidWild)
-      ? `<div class="pl-legend"><span class="lg lg-bonus"></span>奖励抵扣·免交 <span class="lg lg-paid"></span>交出该色球 <span class="lg lg-wild"></span>大师球抵充</div>`
-      : '';
-
-    return `<div class="pay-ledger${affordable ? '' : ' unafford'}">${rowsHtml}${legend}${body}</div>`;
-  }
 
   function renderSupply() {
     const counts = {}; UI.pick.forEach(c => counts[c] = (counts[c] || 0) + 1);
@@ -953,37 +854,28 @@
     if (!UI.pick.length) return false;
     try { return !!E.actionTake(E.clone(G), UI.pick.slice()).ok; } catch (e) { return false; }
   }
-  function takeGuidance() {
-    const counts = {}; UI.pick.forEach(c => counts[c] = (counts[c] || 0) + 1);
-    const distinct = Object.keys(counts).length;
-    if (validTakeSelection()) return `已组成合法拿取：${UI.pick.length} 个精灵球`;
-    if (UI.pick.length === 1) return '再选 2 个不同颜色，或再选 1 个同色（该色供应至少 4）';
-    if (UI.pick.length === 2 && distinct === 2) return '再选 1 个不同颜色';
-    return '请调整已选精灵球';
-  }
-
   function renderActionBar() {
     const bar = $('#action-bar');
-    if (G.phase === 'gameover') { bar.innerHTML = '<div class="act-hint">游戏已结束。</div>'; return; }
+    if (G.phase === 'gameover') { bar.innerHTML = ''; return; }
     const p = me();
-    if (p.isAI) { bar.innerHTML = '<div class="act-hint">电脑正在行动…</div>'; return; }
+    if (p.isAI) { bar.innerHTML = ''; return; }
     if (isOnline() && !netReady()) {
-      bar.innerHTML = '<div class="act-hint">🔌 连接已断开，正在重连…<br><span style="font-size:12px;opacity:.7">重连成功后可以继续操作，进度不会丢</span></div>';
+      bar.innerHTML = '';
       return;
     }
-    if (isOnline() && !myTurn()) { bar.innerHTML = `<div class="act-hint">等待 <b>${escapeHTML(G.players[G.turn].name)}</b> 行动…<br><span style="font-size:12px;opacity:.7">轮到你时这里会出现操作按钮</span></div>`; return; }
-    if (isOnline() && UI.net.pendingAction) { bar.innerHTML = '<div class="act-hint"><span class="thinking">正在等待服务器确认 <span class="dot"></span><span class="dot"></span><span class="dot"></span></span></div>'; return; }
+    if (isOnline() && !myTurn()) { bar.innerHTML = ''; return; }
+    if (isOnline() && UI.net.pendingAction) { bar.innerHTML = ''; return; }
 
     if (UI.phase === 'discard') {
       const over = E.tokenTotal(p) - E.TOKEN_MAX;
       let tray = E.ALL_TOKENS.filter(c => p.tokens[c] > 0)
         .map(c => `<div class="ball ${c}" data-discard="${c}" data-focus-key="discard-${c}" role="button" tabindex="0" aria-label="归还1个${BALL_NAMES[c]}" title="归还${BALL_NAMES[c]}" style="cursor:pointer">${''}</div>`).join('');
-      bar.innerHTML = `<div class="act-hint">精灵球超过 10 个，请点击归还 <b>${over}</b> 个。</div><div class="tray">${tray}</div>`;
+      bar.innerHTML = `<div class="act-status">需归还 <b>${over}</b> 个精灵球</div><div class="tray">${tray}</div>`;
       return;
     }
     if (UI.phase === 'evolve') {
       const opts = dedupeEvo(E.evolutionOptions(G, p));
-      let html = '<div class="act-hint">回合结束 · 可进化一只宝可梦（可选，每回合至多1次）：</div>';
+      let html = '';
       for (const o of opts) {
         const from = byId[o.fromId], to = byId[o.toId];
         html += `<button class="evo-option" data-evo-from="${o.fromId}" data-evo-to="${o.toId}">
@@ -1006,7 +898,7 @@
     if (UI.pick.length) {
       const ready = validTakeSelection();
       const trayHtml = UI.pick.map((c, i) => `<button class="ball ${c} sm tray-pick" data-unpick="${i}" aria-label="移除已选的${BALL_NAMES[c]}" title="点击移除"></button>`).join('');
-      bar.innerHTML = `<div class="act-hint"><b>${takeGuidance()}</b><br><span style="font-size:11px;opacity:.75">点下方已选球可单独撤销</span></div><div class="tray">${trayHtml}</div>
+      bar.innerHTML = `<div class="tray">${trayHtml}</div>
         <div class="act-buttons"><button class="primary" data-act="confirm-take" ${ready ? '' : 'disabled'}>拿取 ${UI.pick.length} 个</button><button class="ghost" data-act="clear-take">全部取消</button></div>`;
       return;
     }
@@ -1017,13 +909,7 @@
       const loc = E.locateCard(G, UI.selCard);
       const rs = reserveState(loc, p);
       const actionText = acquireLabel(c);
-      const eff = E.isPokemart(c) && c.effect ? ` · <span class="eff-tag">${EFFECT_NAMES[c.effect] || ''}</span>` : '';
-      let ledger = purchaseLedgerHTML(c, info);
-      const block = !aff ? acquireBlockReason(c) : '';
-      if (block) ledger = `<div class="pay-ledger unafford"><div class="pl-short">⚠ ${block}</div></div>` + ledger;
-      else if (!ledger && !aff) ledger = `<div class="pay-ledger unafford"><div class="pl-short">⚠ 当前资源不足</div></div>`;
-      if (rs && !rs.ok) ledger += `<div class="pay-ledger unafford"><div class="pl-short">🚫 ${rs.reason}</div></div>`;
-      let html = `<img class="sel-preview${E.isPokemart(c) ? ' pm-card' : ''}" src="${c.img}" alt="${c.name}卡面"><div class="act-hint">已选：<b>${c.name}</b>（${TIER_NAMES[c.tier]}，${c.vp}分）${eff}<br><span style="font-size:12px;opacity:.75">点卡面可放大查看</span></div>${ledger}<div class="act-buttons">`;
+      let html = '<div class="act-buttons">';
       if (aff) html += `<button class="primary" data-act="capture">${actionText}</button>`;
       if (rs) html += rs.ok
         ? `<button class="${aff ? 'ghost' : 'primary'}" data-act="reserve-card">保留</button>`   // can't capture → reserving IS the main move
@@ -1033,11 +919,10 @@
       return;
     }
     if (UI.selDeck) {
-      bar.innerHTML = `<div class="act-hint">保留 <b>${TIER_NAMES[UI.selDeck]}</b> 牌堆顶（获得1个大师球）？</div>
-        <div class="act-buttons"><button class="primary" data-act="reserve-deck">保留牌堆顶</button><button class="ghost" data-act="clear-sel">取消</button></div>`;
+      bar.innerHTML = `<div class="act-buttons"><button class="primary" data-act="reserve-deck">保留牌堆顶</button><button class="ghost" data-act="clear-sel">取消</button></div>`;
       return;
     }
-    bar.innerHTML = `<div class="act-hint">轮到你了。请选择一种行动：<br>· 点击精灵球拿取（3 异色 / 2 同色）<br>· 点击卡牌进行<b>捕捉</b>或<b>保留</b></div>`;
+    bar.innerHTML = '';
   }
 
   function dedupeEvo(opts) {
@@ -1065,11 +950,12 @@
     wrap.innerHTML = '';
     for (let i = 0; i < G.numPlayers; i++) {
       const p = G.players[i];
+      const rosterPlayer = isOnline() && UI.net.roster ? UI.net.roster.find(x => x.seat === i) : null;
       const b = E.bonuses(G, p);
       const tot = E.tokenTotal(p);                // total Poké Balls held (10 max at turn end)
       const active = (i === G.turn && G.phase === 'play');
       const el = document.createElement('div');
-      el.className = 'player' + (active ? ' active' : '') + (p.isAI ? ' ai' : '');
+      el.className = 'player' + (active ? ' active' : '') + (p.isAI ? ' ai' : '') + (rosterPlayer && rosterPlayer.reclaimable ? ' reclaimable' : '');
       // bonus + token chips
       let chips = '';
       for (const c of E.COLORS) {
@@ -1107,13 +993,17 @@
         const hint = revealReserve ? '（点击可捕捉）' : '';
         rz = `<div class="reserve-zone"><div class="rz-title">保留区 (${p.reserve.length})${hint}</div><div class="pcards">${cards}</div></div>`;
       }
+      const canKick = isOnline() && UI.net.host && UI.net.status === 'connected' && i !== onlineSeat() && i !== UI.net.hostSeat && rosterPlayer && !rosterPlayer.ai;
+      const takeover = rosterPlayer && rosterPlayer.reclaimable ? '<span class="takeover-badge">电脑接管 · 可重连</span>' : '';
       el.innerHTML =
         `<div class="player-head">
            <div class="pavatar" style="background-color:${SEAT_COLORS[i]};background-image:url(${seatAvatar(i)});box-shadow:0 0 0 2px ${SEAT_COLORS[i]}"></div>
            <div class="pname">${netDot(i)}${escapeHTML(p.name)}</div>
            <div class="ptokens${tot > E.TOKEN_MAX ? ' over' : tot === E.TOKEN_MAX ? ' full' : ''}" title="持有的精灵球总数（回合结束上限 ${E.TOKEN_MAX} 个）" aria-label="持有精灵球 ${tot}/${E.TOKEN_MAX}"><span class="pt-lbl">球</span>${tot}<small>/${E.TOKEN_MAX}</small></div>
            <div class="pscore" aria-label="${E.scoreOf(G, p)}分，目标${G.megasEnabled ? E.MEGA_WIN_SCORE : E.WIN_SCORE}分">${E.scoreOf(G, p)}<small>/${G.megasEnabled ? E.MEGA_WIN_SCORE : E.WIN_SCORE}</small></div>
+           ${canKick ? `<button class="ghost player-kick" data-kick="${i}" aria-label="踢出 ${escapeHTML(p.name)}">踢出</button>` : ''}
          </div>
+         ${takeover}
          ${p.buried.length ? `<div class="buried-badge">已进化 ${p.buried.length}</div>` : ''}
          <div class="pstats">${chips}</div>
          <div class="pcards">${stacks || '<span style="color:var(--muted);font-size:12px">尚无宝可梦</span>'}</div>
@@ -1212,9 +1102,7 @@
     if (panel) {
       const r = panel.getBoundingClientRect();
       if (r.bottom < 0 || r.top > innerHeight) {
-        const score = $(`#score-strip [data-player="${pid}"]`);
-        const dock = (pid === G.turn) ? $('#my-resources') : null;
-        panel = (score && score.offsetParent) ? score : (dock && dock.offsetParent ? dock : $('#turn-banner'));
+        panel = null;
       }
     }
     if (!panel) return;
@@ -1783,17 +1671,23 @@
     };
     if ($('#lobby-megas')) $('#lobby-megas').addEventListener('change', syncLobbyOptions);
     if ($('#lobby-pokemart')) $('#lobby-pokemart').addEventListener('change', syncLobbyOptions);
-    // 房主调整座位：空位「＋ 电脑」、改难度、移除电脑、随机座位顺序（服务器会二次校验房主身份）
+    // 房主调整座位：加减电脑、踢出真人、改难度、随机顺序（服务器会二次校验房主身份）
     const lobbyRoster = $('#lobby-roster');
     if (lobbyRoster) {
       lobbyRoster.addEventListener('click', (e) => {
         if (!window.Net || !UI.net) return;
-        const add = e.target.closest('[data-add]'), rm = e.target.closest('[data-remove]');
-        const btn = add || rm;
+        const add = e.target.closest('[data-add]'), rm = e.target.closest('[data-remove]'), kick = e.target.closest('[data-kick]');
+        const btn = add || rm || kick;
         if (!btn || btn.disabled) return;
         btn.disabled = true;                                 // 防连点加出两个电脑；名单一变按钮就被重绘
         setTimeout(() => { btn.disabled = false; }, 1500);   // 被拒绝/没发出时名单不变，稍后恢复可点
         if (add) { lobbySent(Net.addAI('normal')); return; }
+        if (kick) {
+          const seatNo = Number(kick.dataset.kick), seen = (UI.net.roster || []).find(p => p.seat === seatNo);
+          if (!seen || !confirm(`将 ${seen.name} 踢出房间？`)) { btn.disabled = false; return; }
+          lobbySent(Net.kick(seatNo, seen.name, UI.net.rosterVersion));
+          return;
+        }
         // 带上点击时看到的电脑名字：若在新名单到达前连点，服务器会拒绝过期的座位号，而不是误删别的电脑
         const seatNo = Number(rm.dataset.remove), seen = (UI.net.roster || []).find(p => p.seat === seatNo);
         lobbySent(Net.removeAI(seatNo, seen ? seen.name : undefined));
@@ -1866,7 +1760,6 @@
       e.target.setAttribute('aria-expanded', String(!collapsed));
     });
     $('#action-bar').addEventListener('click', (e) => {
-      if (e.target.closest('.sel-preview')) { if (UI.selCard) openInspect(byId[UI.selCard].img, inspectActionsFor(UI.selCard), byId[UI.selCard].name); return; }
       const b = e.target.closest('[data-act],[data-discard],[data-evo-from],[data-mega],[data-unpick]'); if (!b) return;
       if (b.dataset.act === 'confirm-take') doTake();
       else if (b.dataset.act === 'clear-take') { UI.pick = []; render(); }
@@ -1882,6 +1775,15 @@
     });
     // own-reserve capture: clicking a revealed reserve mini-card selects it
     $('#players').addEventListener('click', (e) => {
+      const kick = e.target.closest('[data-kick]');
+      if (kick && isOnline() && UI.net.host) {
+        const seatNo = Number(kick.dataset.kick), seen = (UI.net.roster || []).find(p => p.seat === seatNo);
+        if (seen && confirm(`将 ${seen.name} 转为电脑接管？该玩家之后仍可重新连接。`)) {
+          kick.disabled = true;
+          if (!Net.kick(seatNo, seen.name, UI.net.rosterVersion)) { kick.disabled = false; flashHint('连接已断开，重连后再试'); }
+        }
+        return;
+      }
       const mc = e.target.closest('[data-reserve-capture]');
       if (mc && interactable()) { UI.selCard = mc.dataset.reserveCapture; UI.selDeck = null; UI.pick = []; render(); focusActionPanel(); return; }
       // any other captured/opponent card: tap to enlarge & read

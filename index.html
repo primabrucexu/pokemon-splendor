@@ -136,14 +136,9 @@
   <!-- ===== Game screen ===== -->
   <div id="game" class="screen hidden">
     <header id="topbar">
-      <div class="topbar-left">
-        <span class="brand-mini">璀璨宝石 · 宝可梦</span>
-      </div>
-      <div id="turn-banner" role="status" aria-live="polite"></div>
+      <div id="turn-banner" class="sr-only" role="status" aria-live="polite"></div>
       <div id="score-strip" role="list" aria-label="实时战况"></div>
-      <div class="topbar-right">
-        <button id="menu-btn" class="ghost small">菜单</button>
-      </div>
+      <button id="menu-btn" class="ghost small">菜单</button>
     </header>
     <div id="net-bar" class="net-bar" role="status" aria-live="assertive"></div>
     <div id="idle-bar" class="idle-bar" role="status" aria-live="polite"></div>
@@ -160,10 +155,9 @@
       <div id="log-lines"></div>
     </div>
 
-    <div id="controls">
-      <div id="action-bar" class="panel" aria-label="当前操作"></div>
-      <div id="my-resources" class="panel"></div>
-      <div id="supply" class="panel"></div>
+    <div id="controls" class="panel">
+      <div id="supply"></div>
+      <div id="action-bar" aria-label="当前操作"></div>
     </div>
 
     <button id="undo-btn" class="hidden"><i class="ti ti-arrow-back-up" aria-hidden="true"></i>悔棋</button>

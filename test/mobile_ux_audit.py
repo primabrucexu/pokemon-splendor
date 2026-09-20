@@ -4,7 +4,7 @@ Drives the game at phone / small-phone / landscape viewports through the base tu
 vs the AI, forced discard / AI-thinking / undo / menu / win states, the online lobby and a hotseat
 pass, screenshotting each state and flagging the bug class that has bitten twice on phones:
   - an interactive element whose centre is covered by a higher-z fixed/sticky overlay
-    (tutorial bubble, dock, undo button, sticky tier label, topbar)
+    (tutorial bubble, dock, undo button, sticky tier label, floating menu)
   - page-level horizontal overflow, clipped button text, tap targets < 40px
   - tutorial bubble overlapping the action bar / spotlight, spotlight target off-screen
 
@@ -48,7 +48,7 @@ AUDIT_JS = r"""
     }
     if (r.width < 40 || r.height < 40) small.push({ el: desc(el), w: Math.round(r.width), h: Math.round(r.height) });
   }
-  for (const el of document.querySelectorAll('button, #turn-banner, .tier-label, .mychip, .act-hint, #tut-title, .supply-row .cnt, #lobby-code')) {
+  for (const el of document.querySelectorAll('button, #turn-banner, .tier-label, #tut-title, .supply-row .cnt, #lobby-code')) {
     if (!vis(el)) continue; const r = el.getBoundingClientRect(); if (!inView(r)) continue;
     if (el.scrollWidth > el.clientWidth + 2 && getComputedStyle(el).overflowX !== 'visible') clipped.push({ el: desc(el), sw: el.scrollWidth, cw: el.clientWidth });
   }

@@ -15,6 +15,7 @@
  *   Net.rematch()                 host: end-of-game -> back to lobby, same seats
  *   Net.addAI(level) / removeAI(seat, name) / setAILevel(seat, level, name) / shuffle()
  *                                 host, lobby: bot seats + random seat order
+ *   Net.kick(seat, name, rosterVersion) host: remove in lobby / hand to AI mid-game
  *   Net.setOptions(opts)          host, lobby: sync expansion choices
  *   Net.sync() / Net.close()
  * ===================================================================== */
@@ -102,11 +103,12 @@
   // name = 该行电脑的名字：座位号会因移除/随机而变化，服务器据此拒绝过期的操作
   function removeAI(seat, name) { return send({ t: 'removeAI', seat, name }); }
   function setAILevel(seat, level, name) { return send({ t: 'aiLevel', seat, level, name }); }
+  function kick(seat, name, rosterVersion) { return send({ t: 'kick', seat, name, rosterVersion }); }
   function shuffle() { return send({ t: 'shuffle' }); }
   function setOptions(opts) { return send({ t: 'options', options: opts || {} }); }
   function close() { closedByUs = true; clearTimeout(reconnect); stopBeat(); if (ws) { try { ws.onclose = null; ws.close(); } catch (e) { } } ws = null; }
 
-  const api = { connect, on, send, action, start, sync, setName, rematch, rejoin, addAI, removeAI, setAILevel, shuffle, setOptions, close, parseRoomCode,
+  const api = { connect, on, send, action, start, sync, setName, rematch, rejoin, addAI, removeAI, setAILevel, kick, shuffle, setOptions, close, parseRoomCode,
                 isOpen: () => !!(ws && ws.readyState === 1) };
   if (typeof window !== 'undefined') window.Net = api;
   // 纯函数部分（parseRoomCode）可被 Node 测试直接 require；其余函数依赖浏览器 API。

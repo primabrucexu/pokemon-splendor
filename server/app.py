@@ -34,6 +34,7 @@ MUTATING_MESSAGES = {
     "addAI",
     "removeAI",
     "aiLevel",
+    "kick",
     "shuffle",
     "options",
 }

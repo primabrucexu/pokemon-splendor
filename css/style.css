@@ -98,7 +98,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .lr-first{flex:none;font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:999px;border:1px solid var(--gold);color:var(--gold)}
 .lr-lv{flex:none;font-size:12px;color:var(--muted)}
 .lr-diff{flex:none;min-height:40px;font-size:13px;padding:4px 6px;border-radius:8px;border:1px solid var(--line);background:#0b0f2e;color:var(--ink)}
-.lobby-roster .lr-x,.lobby-roster .lr-add{flex:none;min-height:40px;min-width:40px;padding:4px 12px;font-size:13px;line-height:1.2}
+.lobby-roster .lr-x,.lobby-roster .lr-add,.lobby-roster .lr-kick{flex:none;min-height:40px;min-width:40px;padding:4px 12px;font-size:13px;line-height:1.2}
+.lr-kick,.player-kick{color:var(--bad);border-color:var(--bad)}
+.lr-reclaim,.takeover-badge{font-size:11px;color:var(--gold);font-weight:700}
 .lr-first,.lr-host{white-space:nowrap}
 .lr-add:disabled{opacity:.5}
 .lobby-tools{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px 10px;margin:-2px 0 8px;font-size:12.5px;color:var(--muted);line-height:1.5}
@@ -189,10 +191,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 /* ---------- game shell ---------- */
 #game{min-height:var(--app-h)}
-#topbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:calc(8px + var(--sa-t)) max(14px,var(--sa-r)) 8px max(14px,var(--sa-l));background:rgba(10,13,40,.88);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;backdrop-filter:blur(10px)}
-.brand-mini{display:block;max-width:240px;font-weight:800;color:var(--gold);letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#turn-banner{font-weight:800;font-size:clamp(13px,3.6vw,16px);padding:6px 14px;border-radius:20px;background:var(--panel2);border:1px solid var(--line);text-align:center;flex:1 1 auto;min-width:0}
-.topbar-left,.topbar-right{flex:0 1 auto;min-width:0}
+#topbar{display:contents}
+#menu-btn{position:fixed;top:calc(10px + var(--sa-t));right:max(14px,var(--sa-r));z-index:50;background:rgba(10,13,40,.92);backdrop-filter:blur(8px)}
 #score-strip{display:none}
 .score-pill{display:flex;align-items:center;gap:5px;min-width:0;padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:rgba(17,22,58,.82);font-size:11px;color:var(--muted)}
 .score-pill.active{border-color:var(--gold);background:rgba(255,213,74,.12);box-shadow:0 0 0 1px rgba(255,213,74,.15)}
@@ -200,32 +200,33 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .score-pill b{color:var(--gold);font-size:14px}.score-pill small{font-size:9px}.score-balls{white-space:nowrap}
 #board{min-width:0}
 #field{display:flex;flex-direction:column;gap:10px;container-type:inline-size;container-name:game-field}
-#controls{display:flex;flex-direction:column;gap:14px}
+#controls{display:flex;flex-direction:row;align-items:center;gap:10px;min-width:0;overflow-x:auto;overflow-y:hidden}
+#action-bar{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 
-/* desktop / large tablet: board left, controls + log right, players full-width */
+/* desktop: 150% game surface, board + controls left, players stacked on the right */
 @media (min-width:1000px){
-  #game{display:grid;gap:14px;padding:14px;
-    grid-template-columns:minmax(0,1fr) 340px;
+  #game{display:grid;gap:14px;padding:14px;zoom:1.5;min-height:66.6667vh;min-height:66.6667dvh;
+    grid-template-columns:minmax(0,1fr) 450px;
     grid-template-areas:
-      "topbar  topbar"
-      "board   controls"
-      "board   log"
-      "players players";}
-  #topbar{grid-area:topbar;margin:-14px -14px 0;border-radius:0}
+      "board   players"
+      "controls players"
+      "log     players";}
   #board{grid-area:board}
-  #controls{grid-area:controls;position:sticky;top:62px;align-self:start;max-height:calc(100dvh - 76px);overflow:auto;overscroll-behavior:contain}
+  #controls{grid-area:controls;align-self:start;padding:6px}
+  #game #supply{display:flex;flex:1 0 auto;flex-direction:row;flex-wrap:nowrap;gap:6px;min-width:max-content}
+  #game #supply .panel-title{display:none}
+  #game #supply .supply-row{flex:0 0 46px;flex-direction:column;gap:1px;justify-content:center;min-width:46px;min-height:62px;padding:5px 4px;text-align:center}
+  #game #supply .supply-row .name{display:none}
+  #game #supply .supply-row .cnt{font-size:14px;min-width:0;text-align:center}
+  #game #supply .supply-row.mega-row{margin:0;border-top:0;border-left:1px dashed var(--line);padding-top:5px}
+  #action-bar:empty{display:none}
+  #game #players{grid-area:players;align-self:start;grid-auto-flow:row;grid-auto-columns:auto;grid-template-columns:1fr;gap:10px;padding:52px 0 0}
+  #game #players .pstats{flex-wrap:nowrap}
   #log{grid-area:log;align-self:start}
-  #players{grid-area:players}
-  #action-bar{position:sticky;top:0;z-index:4;box-shadow:0 10px 24px rgba(7,9,28,.35)}
-  #score-strip{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;overflow-x:auto;scrollbar-width:none}
-  #score-strip::-webkit-scrollbar{display:none}
-  .topbar-left{display:none}
-  #turn-banner{flex:0 1 280px}
-}
-@media (max-width:520px){
-  .topbar-left{display:none}
-  #topbar{padding-left:max(9px,var(--sa-l));padding-right:max(9px,var(--sa-r))}
-  #turn-banner{padding-inline:10px}
+  #field .tier-row{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  #field .card-strip{flex-wrap:nowrap}
+  #field .deck-pile .deck-tag{display:none}
+  #field .deck-pile .count{left:50%;right:auto;transform:translateX(-50%)}
 }
 
 /* field rows */
@@ -304,9 +305,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 @media (hover:hover) and (pointer:fine){ .supply-row:not(.disabled):hover{background:var(--panel2)} }
 
 /* ---------- action bar ---------- */
-#action-bar{min-height:84px;border-color:rgba(255,213,74,.38);background:linear-gradient(145deg,rgba(42,50,112,.96),rgba(27,33,78,.96))}
-body.has-card-selection #action-bar{border-color:var(--gold);box-shadow:0 0 0 1px rgba(255,213,74,.18),0 10px 26px rgba(0,0,0,.28)}
-.act-hint{color:var(--muted);font-size:13px;margin-bottom:8px;line-height:1.5}
+#action-bar{min-height:0}
+.act-status{color:var(--muted);font-size:12px;margin-bottom:6px;line-height:1.4}
 .act-buttons{display:flex;flex-wrap:wrap;gap:8px}
 .act-buttons button{flex:1 1 auto;min-width:96px}
 .act-buttons .primary{min-height:48px}
@@ -316,54 +316,6 @@ body.has-card-selection #action-bar{border-color:var(--gold);box-shadow:0 0 0 1p
 .evo-option{width:100%;text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--ink);margin-bottom:6px;display:flex;align-items:center;gap:8px;min-height:48px}
 .evo-option b{color:var(--gold)}
 @media (hover:hover) and (pointer:fine){ .evo-option:hover{border-color:var(--gold)} }
-/* selected-card preview inside the action bar (read the card while you act) */
-.sel-preview{float:right;width:calc(var(--card-w) * 1.5);height:auto;aspect-ratio:3/4;border-radius:9px;border:2px solid var(--gold);margin:0 0 6px 10px;box-shadow:0 4px 12px rgba(0,0,0,.5);cursor:zoom-in}
-.sel-preview.pm-card{aspect-ratio:647/1000;object-fit:cover;object-position:center;background:#61c9dc}
-
-/* ---------- purchase ledger (payment breakdown when a card is selected) ---------- */
-.pay-ledger{clear:both;margin:6px 0 8px;background:#11163a;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
-.pay-ledger.unafford{opacity:.9;border-color:var(--bad)}
-.ball.xs{width:16px;height:16px}
-.pl-row{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12.5px}
-.pl-name{display:flex;align-items:center;gap:4px;min-width:72px;color:var(--muted);flex:none}
-.pl-pips{display:flex;gap:3px;flex:1;flex-wrap:wrap;min-width:0}
-.pl-calc{white-space:nowrap;color:var(--ink);flex:none}
-.pl-disc{color:var(--muted)}
-.pl-pay{color:var(--gold);font-size:14px;margin:0 1px}
-.pl-wild{color:#b79bff;font-size:11px}
-/* pips: small ball-art with a per-state symbol so the three states never rely on colour */
-.pip{width:15px;height:15px}
-.pip-bonus{opacity:.4;filter:grayscale(.65)}
-.pip-bonus::after{content:"";position:absolute;left:-1px;right:-1px;top:50%;height:2px;margin-top:-1px;background:var(--ink);transform:rotate(-45deg);box-shadow:0 0 1px 1px rgba(0,0,0,.55)}
-.pip-wild::after{content:"\2605";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--gold);text-shadow:0 1px 2px #000}
-.pl-legend{font-size:10.5px;color:var(--muted);margin:7px 0 1px;line-height:1.9}
-.pl-legend .lg{display:inline-block;width:12px;height:12px;border-radius:50%;position:relative;vertical-align:-2px;margin:0 3px 0 9px;background:var(--panel2);border:1px solid var(--line)}
-.pl-legend .lg:first-child{margin-left:0}
-.lg-bonus{opacity:.55}
-.lg-bonus::after{content:"";position:absolute;left:-1px;right:-1px;top:50%;height:2px;margin-top:-1px;background:var(--ink);transform:rotate(-45deg)}
-.lg-paid{background:var(--good)}
-.lg-wild{background:var(--purple)}
-.lg-wild::after{content:"\2605";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--gold)}
-.handover{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px dashed var(--line)}
-.ho-label{font-weight:800;color:var(--ink);font-size:12px;background:var(--panel2);border-radius:6px;padding:3px 8px;flex:none}
-.ho-chip{display:flex;align-items:center;gap:2px;font-weight:800;font-size:12.5px;background:#0e1230;border:1px solid var(--line);border-radius:8px;padding:2px 7px}
-.ho-chip.ho-master{border-color:var(--purple);box-shadow:0 0 0 1px rgba(122,79,192,.45)}
-.ho-arrow{color:var(--muted);font-size:11px}
-.pl-vnote{color:var(--muted);font-size:10.5px}
-.pl-free{margin-top:7px;color:var(--good);font-weight:800;font-size:12.5px}
-.pl-short{margin-top:7px;color:var(--bad);font-weight:800;font-size:12.5px}
-
-/* ---------- "your resources" strip (active player's tokens + bonus discounts) ---------- */
-#my-resources{display:flex;flex-direction:column;gap:7px}
-.mc-label{font-size:11px;color:var(--muted);font-weight:800;letter-spacing:.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mychips{display:flex;flex-wrap:wrap;gap:6px}
-.mychip{display:grid;grid-template-columns:auto auto;grid-template-rows:1fr 1fr;align-items:center;column-gap:4px;background:#11163a;border:1px solid var(--line);border-radius:13px;padding:3px 8px 3px 4px;font-size:12px;min-height:38px}
-.mychip .ball{grid-row:1/3}
-.mychip .mc-tok,.mychip .mc-bon{display:flex;align-items:baseline;gap:3px;line-height:1.05;font-weight:800;min-width:30px}
-.mychip .mc-tok small,.mychip .mc-bon small{font-size:8px;color:var(--muted);font-weight:700}
-.mychip .mc-bon{color:var(--good);font-size:11px}
-.mychip.master,.mychip.mega{grid-template-rows:1fr}.mychip.master .ball,.mychip.mega .ball{grid-row:auto}.mychip.master .mc-tok,.mychip.mega .mc-tok{font-size:13px}
-
 /* ---------- guided tutorial (新手教程) ---------- */
 .setup-tutorials button{flex:1 1 auto}
 #tut-mask{position:fixed;z-index:78;border-radius:12px;pointer-events:none;
@@ -421,6 +373,8 @@ body.tutorial-choice-open #tut-mask,body.tutorial-choice-open #tut-bubble{visibi
 .player.active{border-color:var(--gold);box-shadow:0 0 0 2px rgba(255,213,74,.45),var(--shadow)}
 .player.ai .pname::after{content:" 🤖"}
 .player-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.player-kick{flex:none;min-height:32px;padding:4px 8px;font-size:12px}
+.takeover-badge{display:inline-block;margin:-2px 0 8px;padding:2px 7px;border:1px solid rgba(255,213,74,.4);border-radius:999px}
 .pavatar{width:30px;height:30px;border-radius:50%;flex:none;background-size:cover;background-position:center}
 .pname{font-weight:800;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pscore{font-size:24px;font-weight:900;color:var(--gold);line-height:1}
@@ -504,21 +458,19 @@ body.tutorial-choice-open #tut-mask,body.tutorial-choice-open #tut-bubble{visibi
 @media (max-width:999px){
   #game{display:flex;flex-direction:column;min-height:var(--app-h);padding-bottom:calc(var(--dock-h) + var(--sa-b) + 6px)}
   #zoom{display:none !important}
-  #board{order:1;padding:8px max(6px,var(--sa-r)) 0 max(6px,var(--sa-l))}
+  #board{order:1;padding:54px max(6px,var(--sa-r)) 0 max(6px,var(--sa-l))}
   #players{order:2;padding:10px max(8px,var(--sa-r)) 12px max(8px,var(--sa-l));grid-auto-flow:row;grid-auto-columns:auto;
     grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
   #log{order:3;margin:0 max(8px,var(--sa-l)) 8px max(8px,var(--sa-r));max-height:170px}
 
-  /* the dock: supply + contextual actions, pinned in the thumb zone */
-  #controls{position:fixed;left:0;right:0;bottom:0;z-index:46;order:99;gap:6px;
+  /* one-row dock: supply + contextual actions, pinned in the thumb zone */
+  #controls{position:fixed;left:0;right:0;bottom:0;z-index:46;order:99;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:8px;
     padding:6px max(8px,var(--sa-l)) calc(6px + var(--sa-b)) max(8px,var(--sa-r));
     background:rgba(10,13,40,.96);backdrop-filter:blur(10px);border-top:1px solid var(--line);
-    box-shadow:0 -8px 24px rgba(0,0,0,.4);max-height:56svh;max-height:56dvh;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
-  #controls .panel{padding:8px;border-radius:12px}
+    box-shadow:0 -8px 24px rgba(0,0,0,.4);overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 
   /* supply as a compact horizontal strip of tappable ball-chips */
-  #supply{order:1;flex-direction:row;flex-wrap:nowrap;gap:6px;overflow-x:auto;overflow-y:hidden;padding:6px;
-    scroll-snap-type:x proximity;overscroll-behavior-x:contain}
+  #supply{display:flex;order:1;flex:0 0 auto;flex-direction:row;flex-wrap:nowrap;gap:6px;padding:0;scroll-snap-type:x proximity}
   #supply::-webkit-scrollbar,.tier-row::-webkit-scrollbar{height:3px}
   #supply::-webkit-scrollbar-thumb,.tier-row::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
   #supply .panel-title{display:none}
@@ -526,16 +478,7 @@ body.tutorial-choice-open #tut-mask,body.tutorial-choice-open #tut-bubble{visibi
   .supply-row .name{display:none}
   .supply-row .cnt{font-size:14px;min-width:0}
   .supply-row.mega-row{margin:0;border-top:none;border-left:1px dashed var(--line);padding-left:10px}
-  #action-bar{min-height:0}
-  .act-hint{margin-bottom:6px}
-
-  /* your-resources: single compact horizontal scroll row in the dock */
-  #my-resources{order:2;flex-direction:row;align-items:center;gap:8px;overflow-x:auto;overflow-y:hidden;padding:6px 8px}
-  #my-resources::-webkit-scrollbar{height:3px}
-  #my-resources::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
-  .mc-label{flex:0 0 auto;font-size:10px}
-  .mychips{flex-wrap:nowrap}
-  .mychip{flex:0 0 auto}
+  #action-bar{order:2;padding:0;flex:0 0 auto}
 
   /* board rows scroll horizontally instead of wrapping */
   /* Snap only once the player has scrolled a row (.snap is added by ui.js on first scroll).
@@ -548,10 +491,6 @@ body.tutorial-choice-open #tut-mask,body.tutorial-choice-open #tut-bubble{visibi
   .card-strip{flex-wrap:nowrap}
   .card,.deck-pile{scroll-snap-align:start}
 
-  .sel-preview{width:calc(var(--card-w) * 1.7)}
-  body.has-card-selection #supply,body.has-card-selection #my-resources{display:none !important}
-  body.has-card-selection #action-bar .act-buttons{position:sticky;bottom:-8px;z-index:3;margin:8px -8px -8px;padding:12px 8px 8px;background:linear-gradient(transparent,rgba(29,35,80,.98) 24%)}
-  body.has-card-selection .pay-ledger{max-height:132px;overflow:auto}
   .toast{top:calc(var(--sa-t) + 58px);bottom:auto}
 }
 
@@ -561,15 +500,8 @@ body.tutorial-choice-open #tut-mask,body.tutorial-choice-open #tut-bubble{visibi
   #players{grid-template-columns:1fr}
 }
 
-/* landscape phone: keep the dock but allow wider rows */
+/* landscape phone: keep the same one-row dock */
 @media (max-width:999px) and (orientation:landscape){
-  /* Landscape has ~390px of height: a stacked dock ate 64% of it and left a ~55px sliver of
-     board. Lay the panels side by side (action bar | supply; resources below) so the dock is
-     ~140px and two full card rows fit; it wraps back to stacked on narrow landscape. */
-  #controls{max-height:64svh;max-height:64dvh;flex-direction:row;flex-wrap:wrap;align-items:flex-start;gap:6px}
-  #action-bar{flex:1 1 320px;min-width:0;order:1}
-  #supply{flex:0 0 auto;max-width:100%;order:2}
-  #my-resources{flex:1 1 100%;order:3}
   #players{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
   #inspect-img{max-height:calc(100dvh - 92px);max-width:74vw}
   #inspect-inner{flex-direction:row;align-items:center}
@@ -598,7 +530,7 @@ body.tutorial-choice-open #tut-mask,body.tutorial-choice-open #tut-bubble{visibi
 .fly-card[data-tier="pmL2"]{background-image:linear-gradient(rgba(8,10,30,.12),rgba(8,10,30,.28)),url(../assets/backs/pokemart-2.png)}
 .fly-card[data-tier="pmL3"]{background-image:linear-gradient(rgba(8,10,30,.12),rgba(8,10,30,.28)),url(../assets/backs/pokemart-3.png)}
 @keyframes recv{0%{transform:scale(1)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
-.player.receiving,.score-pill.receiving,#turn-banner.receiving,#my-resources.receiving{animation:recv .5s ease}
+.player.receiving,.score-pill.receiving,#turn-banner.receiving{animation:recv .5s ease}
 
 /* ---------- undo (悔棋) button ---------- */
 #undo-btn{position:fixed;bottom:calc(14px + var(--sa-b));left:calc(14px + var(--sa-l));z-index:40;background:linear-gradient(180deg,#3a4290,#2a3170);color:#fff;border:1px solid var(--line);box-shadow:var(--shadow);font-weight:700;padding:11px 16px;border-radius:12px;min-height:46px}
