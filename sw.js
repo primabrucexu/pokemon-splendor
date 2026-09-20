@@ -1,12 +1,12 @@
 /* Pokémon Splendor — service worker (offline app shell + runtime card-image cache) */
-const VER = 'ps-cache-v15'; // online lobby: bot seats + seat-order shuffle
+const VER = 'ps-cache-v16'; // simplified game UI shared by local and online play
 const BALLS = ['red', 'blue', 'black', 'pink', 'yellow', 'purple'].map(c => `./assets/balls/${c}.png`);
 const BACKS = ['stage1', 'stage2', 'stage3', 'rare', 'legend'].map(t => `./assets/backs/${t}.webp`);
 BACKS.push('./assets/backs/pokemart-1.png', './assets/backs/pokemart-2.png', './assets/backs/pokemart-3.png');
 const AVATARS = ['ash', 'misty', 'brock', 'rocket'].map(a => `./assets/avatars/${a}.png`);
 const SHELL = [
-  './', './index.html', './css/style.css',
-  './js/cards.js', './js/megas.js', './js/pokemart.js', './js/engine.js', './js/ai.js', './js/vsearch.js', './js/azai.js', './js/net.js', './js/ai.worker.js', './js/ui.js', './js/tutorial.js',
+  './', './index.html', './css/style.css?v=16',
+  './js/cards.js', './js/megas.js', './js/pokemart.js', './js/engine.js', './js/ai.js', './js/vsearch.js', './js/azai.js', './js/net.js?v=16', './js/ai.worker.js', './js/ui.js?v=16', './js/tutorial.js?v=16',
   './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
   ...BALLS, ...BACKS, ...AVATARS,
 ];
