@@ -121,6 +121,7 @@
       this.conns = {};      // live connId -> seat index (>=0 seated, -1 spectator)
       this.hostToken = null; // token of the host (first human to join); survives seat reordering
       this.shuffleCount = 0; // how many times the host randomized the order in this lobby (shown to all)
+      this.options = { megas: false, pokemart: false }; // host-owned lobby expansion choices
       this.turnStartedAt = 0; // server ms when the current turn began (idle-timeout base)
       this.now = 0;         // current server ms, injected before each handler
     }
@@ -227,8 +228,16 @@
         case 'removeAI': return this._removeAI(connId, msg.seat, msg.name);
         case 'aiLevel':  return this._setAILevel(connId, msg.seat, msg.level, msg.name);
         case 'shuffle':  return this._shuffle(connId);
+        case 'options':  return this._setOptions(connId, msg.options);
         case 'sync':     return this._stateTo(connId);
       }
+    }
+
+    _setOptions(connId, options) {
+      if (!this._isHost(connId)) return this.send(connId, { t: 'reject', reason: '只有房主可以选择扩展' });
+      if (this.started) return this.send(connId, { t: 'reject', reason: '游戏开始后不能修改扩展' });
+      this.options = { megas: !!(options && options.megas), pokemart: !!(options && options.pokemart) };
+      this._roster();
     }
 
     // 改名：大厅里随时可改，立即广播给所有人（不重发 welcome，避免打断状态）。
@@ -357,6 +366,7 @@
       if (this.started) return this._stateTo(connId);
       if (this.seats.length < 2 || this.seats.length > 4) return this.send(connId, { t: 'reject', reason: '联机对局需要 2–4 名玩家（可以添加电脑补位）' });
       opts = opts || {};
+      this.options = { megas: !!opts.megas, pokemart: !!opts.pokemart };
       const names = this.seats.map((s, i) => s.name || ('训练家 ' + (i + 1)));
       // server-authoritative RNG: NEVER trust a client-supplied seed — it would let
       // the host precompute the entire deck order. Mint it here; fall back to the
@@ -366,8 +376,8 @@
       this.G = E.createGame(this.DB, {
         numPlayers: this.seats.length, names,
         ai: this.seats.map(s => !!s.ai),
-        megas: !!opts.megas, megaDB: this.megaDB,
-        pokemart: !!opts.pokemart, pokemartDB: this.pokemartDB,
+        megas: this.options.megas, megaDB: this.megaDB,
+        pokemart: this.options.pokemart, pokemartDB: this.pokemartDB,
         seed,
       });
       // same field the local game uses (ui.js startGame): lets clients label bots
@@ -506,7 +516,7 @@
       const players = this.seats.map((s, i) => ({
         seat: i, name: s.name, connected: s.ai ? true : s.connected, ai: s.ai || null,
       }));
-      this._broadcast({ t: 'roster', players, hostSeat: this._hostSeat(), started: this.started, maxSeats: this.maxSeats, shuffleCount: this.shuffleCount });
+      this._broadcast({ t: 'roster', players, hostSeat: this._hostSeat(), started: this.started, maxSeats: this.maxSeats, shuffleCount: this.shuffleCount, options: this.options });
     }
     _broadcast(msg) { for (const cid in this.conns) this.send(cid, msg); }
 
@@ -518,7 +528,7 @@
     snapshot() {
       const seats = this.seats.map(s => ({ token: s.token, name: s.name, connId: null, connected: false, ai: s.ai || null }));
       return {
-        seq: this.seq, started: this.started, seats, hostToken: this.hostToken, shuffleCount: this.shuffleCount,
+        seq: this.seq, started: this.started, seats, hostToken: this.hostToken, shuffleCount: this.shuffleCount, options: this.options,
         turnStartedAt: this.turnStartedAt, g: this.G ? serializeG(this.G) : null,
       };
     }
@@ -528,6 +538,10 @@
       this.started = !!snap.started;
       this.turnStartedAt = snap.turnStartedAt || 0;
       this.shuffleCount = snap.shuffleCount || 0;
+      this.options = {
+        megas: !!(snap.options && snap.options.megas),
+        pokemart: !!(snap.options && snap.options.pokemart),
+      };
       this.seats = (snap.seats || []).map(s => {
         const ai = AI_LEVELS.indexOf(s.ai) >= 0 ? s.ai : null;
         return { token: ai ? null : s.token, name: s.name, connId: null, connected: !!ai, ai };

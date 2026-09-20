@@ -212,6 +212,7 @@
       UI.net.hostSeat = (typeof m.hostSeat === 'number') ? m.hostSeat : -1;   // 房主按身份认，不一定坐 1 号位
       UI.net.maxSeats = m.maxSeats || 4;
       if (typeof m.shuffleCount === 'number') UI.net.shuffleCount = m.shuffleCount;   // 刷新/晚到的人也看得到房主重随过几次
+      UI.net.options = m.options || { megas: false, pokemart: false };
       UI.net.aiKicks = 0;
       renderLobby();
       if (G && G.phase !== 'gameover' && UI.net.started) renderPlayers();  // 对局中同步在线状态点
@@ -317,8 +318,9 @@
     const start = $('#lobby-start');
     if (start) { start.style.display = host ? '' : 'none'; start.disabled = !(r.length >= 2); }
     const mb = $('#lobby-megas'), pb = $('#lobby-pokemart');
-    if (mb) mb.disabled = !host;
-    if (pb) pb.disabled = !host;
+    const options = UI.net.options || { megas: false, pokemart: false };
+    if (mb) { mb.checked = !!options.megas; mb.disabled = !host; }
+    if (pb) { pb.checked = !!options.pokemart; pb.disabled = !host; }
   }
   // 对局中的连接状态条。以前断线只更新大厅，而大厅在对局中是隐藏的，
   // 于是掉线的人什么提示都没有、点什么都没反应（操作被静默丢弃）。
@@ -1774,8 +1776,14 @@
       });
     }
     if ($('#lobby-start')) $('#lobby-start').addEventListener('click', () => { if (window.Net) Net.start({ megas: !!($('#lobby-megas') && $('#lobby-megas').checked), pokemart: !!($('#lobby-pokemart') && $('#lobby-pokemart').checked) }); });
-    // 房主调整座位：空位「＋ 电脑」、改难度、移除电脑、随机座位顺序（服务器会二次校验房主身份）
     const lobbySent = (ok) => { if (!ok) flashHint('连接已断开，重连后再试'); };
+    const syncLobbyOptions = () => {
+      if (!window.Net || !UI.net || !UI.net.host) return;
+      lobbySent(Net.setOptions({ megas: !!$('#lobby-megas').checked, pokemart: !!$('#lobby-pokemart').checked }));
+    };
+    if ($('#lobby-megas')) $('#lobby-megas').addEventListener('change', syncLobbyOptions);
+    if ($('#lobby-pokemart')) $('#lobby-pokemart').addEventListener('change', syncLobbyOptions);
+    // 房主调整座位：空位「＋ 电脑」、改难度、移除电脑、随机座位顺序（服务器会二次校验房主身份）
     const lobbyRoster = $('#lobby-roster');
     if (lobbyRoster) {
       lobbyRoster.addEventListener('click', (e) => {

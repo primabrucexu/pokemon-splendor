@@ -89,6 +89,31 @@ async def main() -> None:
     with tempfile.TemporaryDirectory(dir=ROOT / "test") as directory:
         manager = RoomManager(Path(directory) / "rooms.sqlite3")
         host = FakeWebSocket()
+        session, host_id = await manager.connect("VISIBILITY", host)
+        await session.message(
+            host_id, {"t": "join", "name": "小明", "token": "host-token"}
+        )
+        guest = FakeWebSocket()
+        guest_session, guest_id = await manager.connect("VISIBILITY", guest)
+        assert guest_session is session
+        await guest_session.message(
+            guest_id, {"t": "join", "name": "小霞", "token": "guest-token"}
+        )
+        assert any(
+            message.get("t") == "roster" and len(message.get("players", [])) == 2
+            for message in host.messages
+        )
+        assert any(
+            message.get("t") == "roster" and len(message.get("players", [])) == 2
+            for message in guest.messages
+        )
+        await manager.disconnect("VISIBILITY", guest_session, guest_id)
+        await manager.disconnect("VISIBILITY", session, host_id)
+        await manager.close()
+
+    with tempfile.TemporaryDirectory(dir=ROOT / "test") as directory:
+        manager = RoomManager(Path(directory) / "rooms.sqlite3")
+        host = FakeWebSocket()
         session, conn_id = await manager.connect("PYTEST", host)
         await session.message(conn_id, {"t": "join", "name": "小明", "token": "host-token"})
         await session.message(conn_id, {"t": "addAI", "level": "easy"})

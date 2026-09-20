@@ -35,6 +35,7 @@ MUTATING_MESSAGES = {
     "removeAI",
     "aiLevel",
     "shuffle",
+    "options",
 }
 
 

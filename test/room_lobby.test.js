@@ -460,6 +460,21 @@ test('roster 携带随机次数：刷新或晚到的人也能看到房主重随�
   assert.strictEqual(last('cL', 'roster').shuffleCount, 3);
 });
 
+test('扩展选项由房主同步给全员，并随房间快照恢复', () => {
+  const { room, last, clear } = makeRoom();
+  room.onMessage('cA', { t: 'join', token: 'tA' });
+  room.onMessage('cB', { t: 'join', token: 'tB' });
+  clear();
+  room.onMessage('cB', { t: 'options', options: { megas: true, pokemart: true } });
+  assert.strictEqual(last('cB', 'reject').reason, '只有房主可以选择扩展');
+  room.onMessage('cA', { t: 'options', options: { megas: true, pokemart: false } });
+  assert.deepStrictEqual(last('cA', 'roster').options, { megas: true, pokemart: false });
+  assert.deepStrictEqual(last('cB', 'roster').options, { megas: true, pokemart: false });
+  const restored = new Room({ cardDB: DB, megaDB: MEGA, pokemartDB: PM, send: () => { } });
+  restored.restore(JSON.parse(JSON.stringify(room.snapshot())));
+  assert.deepStrictEqual(restored.options, { megas: true, pokemart: false });
+});
+
 test('恢复快照时房主以 hostToken 为准（旧规则「第一个真人座位」会认错人）', () => {
   const r = new Room({ cardDB: DB, send: () => { } });
   r.restore({ seq: 5, started: false, turnStartedAt: 0, g: null, shuffleCount: 2, hostToken: 'tA',

@@ -15,6 +15,7 @@
  *   Net.rematch()                 host: end-of-game -> back to lobby, same seats
  *   Net.addAI(level) / removeAI(seat, name) / setAILevel(seat, level, name) / shuffle()
  *                                 host, lobby: bot seats + random seat order
+ *   Net.setOptions(opts)          host, lobby: sync expansion choices
  *   Net.sync() / Net.close()
  * ===================================================================== */
 (function () {
@@ -26,17 +27,25 @@
   function on(ev, fn) { handlers[ev] = fn; }
   function emit(ev, data) { if (handlers[ev]) { try { handlers[ev](data); } catch (e) { console.error('Net handler', ev, e); } } }
 
-  // stable identity per room, stored locally → reconnect reclaims the seat
+  // Stable identity per room AND browser tab: reloads reclaim the same seat, while
+  // two tabs can represent two players during local testing. Move the old shared
+  // localStorage token once so an upgrade does not strand an existing seat.
   function token(code) {
     const k = 'pkmn_net_token_' + code;
     if (sessionTokens.has(k)) return sessionTokens.get(k);
     let t = null;
-    try { t = localStorage.getItem(k); } catch (e) { }
+    try { t = sessionStorage.getItem(k); } catch (e) { }
+    if (!t) {
+      try {
+        t = localStorage.getItem(k);
+        if (t) localStorage.removeItem(k);
+      } catch (e) { }
+    }
     if (!t) {
       t = 'tok-' + Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, '0')).join('');
-      try { localStorage.setItem(k, t); } catch (e) { }
     }
-    // Storage may be blocked; reconnection within this page must retain its seat.
+    try { sessionStorage.setItem(k, t); } catch (e) { }
+    // Storage may be blocked; reconnection within this page still retains its seat.
     sessionTokens.set(k, t);
     return t;
   }
@@ -94,9 +103,10 @@
   function removeAI(seat, name) { return send({ t: 'removeAI', seat, name }); }
   function setAILevel(seat, level, name) { return send({ t: 'aiLevel', seat, level, name }); }
   function shuffle() { return send({ t: 'shuffle' }); }
+  function setOptions(opts) { return send({ t: 'options', options: opts || {} }); }
   function close() { closedByUs = true; clearTimeout(reconnect); stopBeat(); if (ws) { try { ws.onclose = null; ws.close(); } catch (e) { } } ws = null; }
 
-  const api = { connect, on, send, action, start, sync, setName, rematch, rejoin, addAI, removeAI, setAILevel, shuffle, close, parseRoomCode,
+  const api = { connect, on, send, action, start, sync, setName, rematch, rejoin, addAI, removeAI, setAILevel, shuffle, setOptions, close, parseRoomCode,
                 isOpen: () => !!(ws && ws.readyState === 1) };
   if (typeof window !== 'undefined') window.Net = api;
   // 纯函数部分（parseRoomCode）可被 Node 测试直接 require；其余函数依赖浏览器 API。
